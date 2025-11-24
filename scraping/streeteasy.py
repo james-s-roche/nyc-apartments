@@ -1,72 +1,47 @@
 from __future__ import annotations
 import time
 import re
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Iterator, List, Optional
 import random
 import requests
 from requests import Response
 from bs4 import BeautifulSoup
+import logging
 
 from config.settings import load_config
 
 
 BASE_URL = "https://streeteasy.com"
 API_BASE = "https://streeteasy.com/srp-service-api"
-HEADERS_CACHE = None
 USER_AGENTS = [
     # Recent Chrome on macOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     # Recent Safari on macOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    # Recent Firefox
+    # Recent Firefox on macOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0",
+    # Recent Chrome on Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 ]
 
 
 def _headers():
-    global HEADERS_CACHE
-    if HEADERS_CACHE is None:
-        cfg = load_config()
-        ua = cfg.scrape.user_agent or random.choice(USER_AGENTS)
-        HEADERS_CACHE = {
-            "User-Agent": ua,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-        }
-    return HEADERS_CACHE
-
-
-@dataclass
-class ListingPreview:
-    external_id: str
-    url: str
-    address: Optional[str]
-    price: Optional[int]
-    beds: Optional[float]
-    baths: Optional[float]
-    neighborhood: Optional[str]
-    borough: Optional[str]
-    fee: Optional[bool]
-
-
-@dataclass
-class ListingDetail(ListingPreview):
-    sqft: Optional[int] = None
-    building_name: Optional[str] = None
-    unit: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    pets: Optional[str] = None
-    amenities: Optional[str] = None
-    broker: Optional[str] = None
+    cfg = load_config()
+    ua = cfg.scrape.user_agent or random.choice(USER_AGENTS)
+    return {
+        "User-Agent": ua,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+    }
 
 
 class StreetEasyScraper:
@@ -76,23 +51,38 @@ class StreetEasyScraper:
         # Introduce small jitter window (±30%)
         self.delay = max(0.1, base_delay)
         self.timeout = timeout_seconds if timeout_seconds is not None else cfg.scrape.request_timeout_seconds
+        self.proxies = None
+        if cfg.scrape.use_proxy_rotator:
+            # Using ProxyScrape's free rotator. Note: Free proxies can be slow or unreliable.
+            # The service requires a session parameter to rotate IPs.
+            session_id = random.randint(1, 1000000)
+            proxy_url = f"http://proxyscrape:free@dc.proxyscrape.com:6060?session={session_id}"
+            self.proxies = {"http": proxy_url, "https": proxy_url}
+            logging.info(f"Using free proxy rotator service.")
+
+        self.session = None
+        self._reinitialize_session()
+
+    def _reinitialize_session(self):
+        """Closes the current session and creates a new one with fresh headers and cookies."""
+        if self.session:
+            self.session.close()
         self.session = requests.Session()
-        self.session.headers.update(_headers())
         # Warm-up: visit homepage to establish cookies
         try:
-            self.session.get(BASE_URL + "/", timeout=self.timeout)
-        except Exception:
-            pass
+            self.session.get(BASE_URL + "/", timeout=self.timeout, proxies=self.proxies)
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"Session warm-up failed: {e}")
 
     def _sleep(self):
-        # Apply jitter 0.7x to 1.3x
-        jitter = random.uniform(0.7, 1.3)
+        # Apply a wider jitter range from 0.6x to 1.8x of the base delay
+        jitter = random.uniform(0.6, 1.8)
         time.sleep(self.delay * jitter)
 
     def _get(self, url: str) -> Response:
         # Basic retry/backoff on 403 and some transient statuses
         attempts = 0
-        backoff = 0.75
+        backoff = 15  # Start with a longer backoff
         is_api = url.startswith(API_BASE)
         while True:
             # Prepare request-specific headers
@@ -107,17 +97,16 @@ class StreetEasyScraper:
                     "Origin": BASE_URL,
                     "X-Requested-With": "XMLHttpRequest",
                 })
-            resp = self.session.get(url, timeout=self.timeout, allow_redirects=True, headers=headers)
+            headers["User-Agent"] = random.choice(USER_AGENTS) # Rotate User-Agent per request
+            resp = self.session.get(url, timeout=self.timeout, allow_redirects=True, headers=headers, proxies=self.proxies)
             print(resp.status_code, url)
             if resp.status_code == 403 and attempts < 3:
-                # Re-warm cookies and back off
+                # 403 Forbidden: We are likely blocked. Re-initialize session and back off.
                 attempts += 1
-                try:
-                    self.session.get(BASE_URL + "/", timeout=self.timeout)
-                except Exception:
-                    pass
+                logging.warning(f"Received 403 on attempt {attempts}. Re-initializing session and backing off for {backoff:.2f}s.")
+                self._reinitialize_session()
                 time.sleep(backoff)
-                backoff *= 2
+                backoff *= (2 * random.uniform(0.8, 1.2)) # Exponential backoff with jitter
                 continue
             if resp.status_code in (429, 503) and attempts < 3:
                 attempts += 1
@@ -127,7 +116,7 @@ class StreetEasyScraper:
             resp.raise_for_status()
             return resp
 
-    def search_rentals(self, neighborhood: str, beds: Optional[int] = None, max_price: Optional[int] = None, page: int = 1) -> List[ListingPreview]:
+    def search_rentals(self, neighborhood: str, beds: Optional[int] = None, max_price: Optional[int] = None, page: int = 1) -> List[dict]:
         # Use JSON API endpoint discovered via network inspection.
         # Example: https://streeteasy.com/srp-service-api/for-rent/midtown/price:-4000|beds:1?page=1
         filters = []
@@ -146,17 +135,6 @@ class StreetEasyScraper:
         data = resp.json()
         return list(self._parse_search_json(data))
 
-    def _parse_search_page(self, html: str) -> Iterator[ListingPreview]:
-        # HTML parsing path deprecated in favor of JSON API; return empty iterator.
-        return iter(())
-
-    @staticmethod
-    def _extract_external_id(url: str) -> str:
-        # Use the trailing numeric id if present, otherwise the path
-        m = re.search(r"/(rental|sale)/(?:[^/]+)-(\d+)$", url)
-        if m:
-            return m.group(2)
-        return url.rsplit('/', 1)[-1]
 
     @staticmethod
     def _parse_price(text: str) -> Optional[int]:
@@ -165,126 +143,44 @@ class StreetEasyScraper:
         digits = re.sub(r"[^0-9]", "", text)
         return int(digits) if digits else None
 
-    @staticmethod
-    def _parse_beds_baths(text: Optional[str]) -> Optional[float]:
-        if not text:
-            return None
-        # e.g., "1 bd", "Studio", "1.5 ba"
-        t = text.lower()
-        if 'studio' in t:
-            return 0.0
-        m = re.search(r"([0-9]+(?:\.[0-9])?)", t)
-        return float(m.group(1)) if m else None
+    def _parse_search_json(self, data: dict) -> Iterator[dict]:
+        """
+        Parses the JSON response from the StreetEasy SRP API.
+        The main listings are in `listingData.edges`, where each edge has a `node`.
+        """
+        try:
+            edges = data.get("listingData", {}).get("edges", [])
+        except AttributeError:
+            # If data is not a dict, .get will fail
+            return iter(())
 
-    def fetch_detail(self, url: str) -> ListingDetail:
-        # No HTML detail scraping with API flow; return minimal detail object.
-        external_id = self._extract_external_id(url)
-        return ListingDetail(
-            external_id=external_id,
-            url=url,
-            address=None,
-            price=None,
-            beds=None,
-            baths=None,
-            neighborhood=None,
-            borough=None,
-            fee=None,
-            sqft=None,
-            building_name=None,
-            unit=None,
-            latitude=None,
-            longitude=None,
-            pets=None,
-            amenities=None,
-            broker=None,
-        )
-
-    # @staticmethod
-    # def _select_text(soup: BeautifulSoup, selector: str) -> Optional[str]:
-    #     el = soup.select_one(selector)
-    #     return el.get_text(strip=True) if el else None
-
-    @staticmethod
-    def _parse_int(text: Optional[str]) -> Optional[int]:
-        if not text:
-            return None
-        digits = re.sub(r"[^0-9]", "", text)
-        return int(digits) if digits else None
-
-    def _parse_search_json(self, data: dict) -> Iterator[ListingPreview]:
-        listings = []
-        if isinstance(data, dict):
-            # Common paths observed for items
-            for key in ("listings", "items", "results", "data"):
-                if key in data and isinstance(data[key], list):
-                    listings = data[key]
-                    break
-            if not listings:
-                # Sometimes nested under another object
-                for v in data.values():
-                    if isinstance(v, dict):
-                        inner = v.get("listings") or v.get("items") or v.get("results")
-                        if isinstance(inner, list):
-                            listings = inner
-                            break
-        for it in listings:
+        for edge in edges:
             try:
-                external_id = str(
-                    it.get("id")
-                    or it.get("listing_id")
-                    or it.get("seo_id")
-                    or it.get("hash_id")
-                )
-                url = it.get("url") or it.get("canonical_url")
-                if url and not url.startswith("http"):
-                    url = BASE_URL + url
+                node = edge.get("node")
+                if not isinstance(node, dict):
+                    continue
 
-                address = it.get("address") or it.get("display_address")
-                neighborhood = None
-                nb = it.get("neighborhood")
-                if isinstance(nb, dict):
-                    neighborhood = nb.get("name")
-                elif isinstance(nb, str):
-                    neighborhood = nb
-                borough = None
-                br = it.get("borough")
-                if isinstance(br, dict):
-                    borough = br.get("name")
-                elif isinstance(br, str):
-                    borough = br
+                # Add a few constructed fields to the raw node data.
+                url_path = node.get("urlPath")
+                node['url'] = BASE_URL + url_path if url_path else ""
+                node['source'] = 'streeteasy'
 
-                price = None
-                price_val = it.get("price") or it.get("price_display")
-                if isinstance(price_val, (int, float)):
-                    price = int(price_val)
-                elif isinstance(price_val, str):
-                    price = self._parse_price(price_val)
+                # Handle upcomingOpenHouse
+                open_house = node.get("upcomingOpenHouse") or {}
+                open_house_start = open_house.get("startTime")
+                if open_house_start:
+                    # Parse ISO 8601 format like "2025-11-22T12:00:00.000-05:00"
+                    try:
+                        # fromisoformat handles this, but we need to strip timezone for naive datetime
+                        dt_obj = datetime.fromisoformat(open_house_start.replace("Z", "+00:00"))
+                        open_house_start = dt_obj.strftime('%Y-%m-%d %H:%M:%S')
+                    except (ValueError, TypeError):
+                        open_house_start = None
+                else:
+                    open_house_start = None
+                
+                node['upcomingOpenHouseStartTime'] = open_house_start
 
-                beds = it.get("beds") or it.get("bedrooms")
-                baths = it.get("baths") or it.get("bathrooms")
-                if isinstance(beds, str):
-                    beds = self._parse_beds_baths(beds)
-                if isinstance(baths, str):
-                    baths = self._parse_beds_baths(baths)
-                beds = float(beds) if beds is not None else None
-                baths = float(baths) if baths is not None else None
-
-                fee = None
-                if "no_fee" in it and isinstance(it.get("no_fee"), bool):
-                    fee = not it.get("no_fee")
-                elif isinstance(it.get("fee"), bool):
-                    fee = it.get("fee")
-
-                yield ListingPreview(
-                    external_id=external_id,
-                    url=url or "",
-                    address=address,
-                    price=price,
-                    beds=beds,
-                    baths=baths,
-                    neighborhood=neighborhood,
-                    borough=borough,
-                    fee=fee,
-                )
+                yield node
             except Exception:
                 continue

@@ -1,116 +1,91 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import List, Any, Tuple
 import mysql.connector
-from mysql.connector import MySQLConnection
+from mysql.connector import errorcode
+import logging
 
 from config.settings import load_config
 
 
-@dataclass
-class Listing:
-    source: str
-    external_id: str
-    url: str
-    address: Optional[str] = None
-    neighborhood: Optional[str] = None
-    borough: Optional[str] = None
-    beds: Optional[float] = None
-    baths: Optional[float] = None
-    sqft: Optional[int] = None
-    price: Optional[int] = None
-    fee: Optional[bool] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    building_name: Optional[str] = None
-    unit: Optional[str] = None
-    pets: Optional[str] = None
-    amenities: Optional[str] = None
-    broker: Optional[str] = None
-    listed_at: Optional[str] = None
-    # New fields mirroring db.schema listingData.node
-    area_name: Optional[str] = None
-    available_at: Optional[str] = None
-    building_type: Optional[str] = None
-    full_bathroom_count: Optional[int] = None
-    half_bathroom_count: Optional[int] = None
-    furnished: Optional[bool] = None
-    has_tour_3d: Optional[bool] = None
-    has_videos: Optional[bool] = None
-    interesting_price_delta: Optional[int] = None
-    is_new_development: Optional[bool] = None
-    lease_term: Optional[int] = None
-    living_area_size: Optional[int] = None
-    months_free: Optional[int] = None
-    net_effective_price: Optional[int] = None
-    off_market_at: Optional[str] = None
-    rello_express: Optional[str] = None
-    slug: Optional[str] = None
-    source_group_label: Optional[str] = None
-    source_type: Optional[str] = None
-    state: Optional[str] = None
-    status: Optional[str] = None
-    street: Optional[str] = None
-    upcoming_open_house: Optional[str] = None
-    display_unit: Optional[str] = None
-    url_path: Optional[str] = None
-    zip_code: Optional[str] = None
-    tier: Optional[str] = None
-
-
 class MySQLClient:
+    """A client for interacting with a MySQL database."""
+
     def __init__(self):
         cfg = load_config()
-        self.conn: MySQLConnection = mysql.connector.connect(
-            host=cfg.db.host,
-            port=cfg.db.port,
-            database=cfg.db.name,
-            user=cfg.db.user,
-            password=cfg.db.password,
-        )
-        self.conn.autocommit = False
+        self.db_config = {
+            'host': cfg.db.host,
+            'port': cfg.db.port,
+            'database': cfg.db.name,
+            'user': cfg.db.user,
+            'password': cfg.db.password,
+        }
+        self.db_name = cfg.db.name
+        self.conn = None
+        self.cursor = None
+        self._column_cache = {}
 
-    def close(self):
-        if self.conn.is_connected():
-            self.conn.close()
-
-    def upsert_listing(self, listing: Listing) -> int:
-        sql = (
-            "INSERT INTO listings (source, external_id, url, address, neighborhood, borough, beds, baths, sqft, price, fee, latitude, longitude, building_name, unit, pets, amenities, broker, listed_at, "
-            "area_name, available_at, building_type, full_bathroom_count, half_bathroom_count, furnished, has_tour_3d, has_videos, interesting_price_delta, is_new_development, lease_term, living_area_size, months_free, net_effective_price, off_market_at, rello_express, slug, source_group_label, source_type, state, status, street, upcoming_open_house, display_unit, url_path, zip_code, tier) "
-            "VALUES (%(source)s, %(external_id)s, %(url)s, %(address)s, %(neighborhood)s, %(borough)s, %(beds)s, %(baths)s, %(sqft)s, %(price)s, %(fee)s, %(latitude)s, %(longitude)s, %(building_name)s, %(unit)s, %(pets)s, %(amenities)s, %(broker)s, %(listed_at)s, "
-            "%(area_name)s, %(available_at)s, %(building_type)s, %(full_bathroom_count)s, %(half_bathroom_count)s, %(furnished)s, %(has_tour_3d)s, %(has_videos)s, %(interesting_price_delta)s, %(is_new_development)s, %(lease_term)s, %(living_area_size)s, %(months_free)s, %(net_effective_price)s, %(off_market_at)s, %(rello_express)s, %(slug)s, %(source_group_label)s, %(source_type)s, %(state)s, %(status)s, %(street)s, %(upcoming_open_house)s, %(display_unit)s, %(url_path)s, %(zip_code)s, %(tier)s) "
-            "ON DUPLICATE KEY UPDATE url=VALUES(url), address=VALUES(address), neighborhood=VALUES(neighborhood), borough=VALUES(borough), beds=VALUES(beds), baths=VALUES(baths), sqft=VALUES(sqft), price=VALUES(price), fee=VALUES(fee), latitude=VALUES(latitude), longitude=VALUES(longitude), building_name=VALUES(building_name), unit=VALUES(unit), pets=VALUES(pets), amenities=VALUES(amenities), broker=VALUES(broker), listed_at=VALUES(listed_at), "
-            "area_name=VALUES(area_name), available_at=VALUES(available_at), building_type=VALUES(building_type), full_bathroom_count=VALUES(full_bathroom_count), half_bathroom_count=VALUES(half_bathroom_count), furnished=VALUES(furnished), has_tour_3d=VALUES(has_tour_3d), has_videos=VALUES(has_videos), interesting_price_delta=VALUES(interesting_price_delta), is_new_development=VALUES(is_new_development), lease_term=VALUES(lease_term), living_area_size=VALUES(living_area_size), months_free=VALUES(months_free), net_effective_price=VALUES(net_effective_price), off_market_at=VALUES(off_market_at), rello_express=VALUES(rello_express), slug=VALUES(slug), source_group_label=VALUES(source_group_label), source_type=VALUES(source_type), state=VALUES(state), status=VALUES(status), street=VALUES(street), upcoming_open_house=VALUES(upcoming_open_house), display_unit=VALUES(display_unit), url_path=VALUES(url_path), zip_code=VALUES(zip_code), tier=VALUES(tier)"
-        )
-        with self.conn.cursor() as cur:
-            cur.execute(sql, vars(listing))
-            listing_id = cur.lastrowid
-            if listing_id == 0:
-                # Fetch existing id based on natural key (source, external_id)
-                cur.execute(
-                    "SELECT id FROM listings WHERE source=%s AND external_id=%s",
-                    (listing.source, listing.external_id),
-                )
-                row = cur.fetchone()
-                if row:
-                    listing_id = int(row[0])
-            if listing.price is not None:
-                cur.execute(
-                    "INSERT INTO price_history (listing_id, price) VALUES (%s, %s)",
-                    (listing_id, listing.price),
-                )
-        return listing_id
-
-    def commit(self):
-        self.conn.commit()
-
-    def __enter__(self):
+    def __enter__(self) -> MySQLClient:
+        try:
+            self.conn = mysql.connector.connect(**self.db_config)
+            self.cursor = self.conn.cursor()
+        except mysql.connector.Error as err:
+            logging.error(f"Failed to connect to database: {err}")
+            raise
         return self
 
-    def __exit__(self, exc_type, exc, tb):
-        if exc:
-            self.conn.rollback()
-        else:
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.conn and self.conn.is_connected():
+            self.cursor.close()
+            self.conn.close()
+
+    def get_table_columns(self, table_name: str) -> List[str]:
+        """
+        Retrieves the column names for a given table from the database schema.
+        Caches the result to avoid redundant queries.
+        """
+        if table_name in self._column_cache:
+            return self._column_cache[table_name]
+
+        if not self.conn or not self.cursor:
+            raise ConnectionError("Database connection is not available.")
+
+        try:
+            query = """
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+            """
+            self.cursor.execute(query, (self.db_name, table_name))
+            columns = [row[0] for row in self.cursor.fetchall()]
+            self._column_cache[table_name] = columns
+            return columns
+        except mysql.connector.Error as err:
+            logging.error(f"Failed to get columns for table {table_name}: {err}")
+            return []
+
+    def insert_many(self, table: str, columns: List[str], values: List[Tuple], on_duplicate: str = 'ignore'):
+        """
+        Inserts multiple rows into a table.
+        
+        :param table: The name of the table.
+        :param columns: A list of column names.
+        :param values: A list of tuples, where each tuple is a row.
+        :param on_duplicate: 'ignore' or 'update'.
+        """
+        if not values:
+            return
+
+        query_template = f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join(['%s'] * len(columns))})"
+        
+        if on_duplicate == 'update':
+            update_clause = ", ".join([f"{col}=VALUES({col})" for col in columns])
+            query_template += f" ON DUPLICATE KEY UPDATE {update_clause}"
+
+        try:
+            self.cursor.executemany(query_template, values)
             self.conn.commit()
-        self.close()
+        except mysql.connector.Error as err:
+            logging.error(f"Database insert failed: {err}")
+            self.conn.rollback()
+            raise
+

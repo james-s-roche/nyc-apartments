@@ -33,7 +33,6 @@ def main():
 
     with open('data/neighborhoods.json', 'r') as f:
         data = json.load(f)
-    print(data)
     neighborhoods = data.get('data', {}).get('areas', [])
     
     for hood in neighborhoods:
