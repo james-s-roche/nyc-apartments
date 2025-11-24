@@ -3,8 +3,6 @@ import logging
 from typing import Optional
 import os
 
-from config.settings import load_config
-from scraping.get_neighborhood_leaf_nodes import get_leaf_neighborhoods
 from scraping.streeteasy import StreetEasyScraper
 from scraping.ingest_listings import ingest_listings
 from database.mysql_client import MySQLClient
@@ -22,71 +20,49 @@ logging.basicConfig(
     ]
 )
 
-PROCESSED_NEIGHBORHOODS_FILE = os.path.join(LOG_DIR, 'processed_neighborhoods.txt')
-
-def get_processed_neighborhoods():
-    if not os.path.exists(PROCESSED_NEIGHBORHOODS_FILE):
-        return set()
-    with open(PROCESSED_NEIGHBORHOODS_FILE, 'r') as f:
-        return set(line.strip() for line in f)
-
-def mark_neighborhood_as_processed(neighborhood_slug):
-    with open(PROCESSED_NEIGHBORHOODS_FILE, 'a') as f:
-        f.write(neighborhood_slug + '\n')
-
 @click.command()
 @click.option('--pages', default=0, type=int, help='Number of pages to fetch per neighborhood. Default is 0 for unlimited.')
+@click.option('--start-page', default=1, type=int, help='Page number to start scraping from. Default is 1.')
 @click.option('--delay', default=None, type=float, help='Delay between requests in seconds')
 @click.option('--timeout', default=None, type=int, help='Request timeout seconds')
-def main(pages: int, delay: Optional[float], timeout: Optional[int]):
+def main(pages: int, start_page: int, delay: Optional[float], timeout: Optional[int]):
     """
-    Scrapes listings for all leaf neighborhoods from StreetEasy and ingests them into the database.
+    Scrapes listings for all of NYC from StreetEasy and ingests them into the database.
     """
-
-    leaf_neighborhoods = get_leaf_neighborhoods()
-    if not leaf_neighborhoods:
-        logging.info("No neighborhoods to scrape.")
-        return
-
-    processed_neighborhoods = get_processed_neighborhoods()
+    neighborhood_slug = "nyc"
     se = StreetEasyScraper(delay_seconds=delay, timeout_seconds=timeout)
     
     with MySQLClient() as db:
-        for neighborhood in leaf_neighborhoods:
-            neighborhood_slug = neighborhood['name'].lower().replace(' ', '-')
-            if neighborhood_slug in processed_neighborhoods:
-                logging.info(f"Skipping already processed neighborhood: {neighborhood_slug}")
-                continue
+        logging.info(f"Scraping all listings for '{neighborhood_slug}'...")
+        
+        try:
+            page = start_page
+            while True:
+                try:
+                    # If a page limit is set (pages > 0), break if we have processed enough pages.
+                    if pages > 0 and (page - start_page + 1) > pages:
+                        logging.info(f"Reached page limit of {pages}. Stopping.")
+                        break
 
-            logging.info(f"Scraping {neighborhood_slug}...")
-            
-            try:
-                page = 1
-                while True:
-                    try:
-                        # If a page limit is set (pages > 0), break if we exceed it.
-                        if pages > 0 and page > pages:
-                            break
+                    logging.info(f"Fetching page {page} for '{neighborhood_slug}'...")
+                    listings = se.search_rentals(neighborhood=neighborhood_slug, page=page)
 
-                        listings = se.search_rentals(neighborhood=neighborhood_slug, page=page)
-
-                        if not listings:
-                            logging.info(f"No more listings found for {neighborhood_slug} on page {page}.")
-                            break
-                        
-                        # The new parser yields dictionaries with all data.
-                        # The old ListingPreview is no longer fully representative.
-                        ingest_listings(listings, db)
-                        logging.info(f"Ingested {len(listings)} listings from {neighborhood_slug}, page {page}.")
-
-                    except Exception as e:
-                        logging.error(f"An error occurred while scraping {neighborhood_slug}, page {page}: {e}")
+                    if not listings:
+                        logging.info(f"No more listings found for {neighborhood_slug} on page {page}. Scraping complete.")
                         break
                     
-                    page += 1
-                mark_neighborhood_as_processed(neighborhood_slug)
-            except Exception as e:
-                logging.error(f"An error occurred while processing neighborhood {neighborhood_slug}: {e}")
+                    ingest_listings(listings, db)
+                    logging.info(f"Ingested {len(listings)} listings from {neighborhood_slug}, page {page}.")
+
+                except Exception as e:
+                    logging.error(f"An error occurred while scraping {neighborhood_slug}, page {page}: {e}")
+                    logging.info(f"To resume, run the script with --start-page={page}")
+                    break
+                
+                page += 1
+        except Exception as e:
+            logging.error(f"A critical error occurred: {e}")
+
 
 
 if __name__ == '__main__':
