@@ -4,7 +4,7 @@ from mysql.connector import errorcode
 from pathlib import Path
 
 from config.settings import load_config
-
+from database.add_slug_column import add_slug_column
 
 def apply_schema(cursor, schema_sql: str):
     statements = [s.strip() for s in schema_sql.split(';') if s.strip()]
@@ -25,10 +25,17 @@ def main():
             autocommit=True,
         )
         cur = conn.cursor()
+        print("Applying base schema...")
         schema_path = Path(__file__).with_name('schema.sql')
         schema_sql = schema_path.read_text(encoding='utf-8')
         apply_schema(cur, schema_sql)
-        print('Schema applied successfully')
+        print('Schema applied successfully.')
+
+        # After applying the base schema, run the data migrations
+        print("\nRunning data migrations (e.g., adding slug column)...")
+        add_slug_column()
+        print("All migrations completed successfully.")
+
     except mysql.connector.Error as err:
         if err.errno == errorcode.ER_BAD_DB_ERROR:
             print(f"Database {cfg.db.name} does not exist. Create it first.")

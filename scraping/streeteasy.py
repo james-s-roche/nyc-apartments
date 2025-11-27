@@ -101,7 +101,7 @@ class StreetEasyScraper:
             resp = self.session.get(url, timeout=self.timeout, allow_redirects=True, headers=headers, proxies=self.proxies)
             print(resp.status_code, url)
             if resp.status_code == 403 and attempts < 3:
-                # 403 Forbidden: We are likely blocked. Re-initialize session and back off.
+                # 403 Forbidden: Connection blocked Re-initialize session and back off.
                 attempts += 1
                 logging.warning(f"Received 403 on attempt {attempts}. Re-initializing session and backing off for {backoff:.2f}s.")
                 self._reinitialize_session()
@@ -116,9 +116,9 @@ class StreetEasyScraper:
             resp.raise_for_status()
             return resp
 
-    def search_rentals(self, neighborhood: str, beds: Optional[int] = None, max_price: Optional[int] = None, page: int = 1) -> List[dict]:
+    def search_rentals(self, neighborhood: str, beds: Optional[int] = None, max_price: Optional[int] = None, page: int = 1) -> (List[dict], int):
         # Use JSON API endpoint discovered via network inspection.
-        # Example: https://streeteasy.com/srp-service-api/for-rent/midtown/price:-4000|beds:1?page=1
+        # Example: https://streeteasy.com/srp-service-api/for-rent/midtown?page=1
         filters = []
         if max_price is not None:
             filters.append(f"price:-{max_price}")
@@ -133,7 +133,11 @@ class StreetEasyScraper:
         self._sleep()
         resp = self._get(url)
         data = resp.json()
-        return list(self._parse_search_json(data))
+
+        listings = list(self._parse_search_json(data))
+        total_pages = data.get("listingData", {}).get("pageInfo", {}).get("totalPages", 0)
+        
+        return listings, total_pages
 
 
     @staticmethod
@@ -180,7 +184,7 @@ class StreetEasyScraper:
                     open_house_start = None
                 
                 node['upcomingOpenHouseStartTime'] = open_house_start
-
+                node.pop('upcomingOpenHouse', None)
                 yield node
             except Exception:
                 continue

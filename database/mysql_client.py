@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Any, Tuple
 import mysql.connector
 from mysql.connector import errorcode
+from sqlalchemy import create_engine
 import logging
 
 from config.settings import load_config
@@ -20,6 +21,7 @@ class MySQLClient:
             'password': cfg.db.password,
         }
         self.db_name = cfg.db.name
+        self.sqlalchemy_engine = create_engine(f"mysql+mysqlconnector://{cfg.db.user}:{cfg.db.password}@{cfg.db.host}:{cfg.db.port}/{cfg.db.name}")
         self.conn = None
         self.cursor = None
         self._column_cache = {}
@@ -61,6 +63,24 @@ class MySQLClient:
             return columns
         except mysql.connector.Error as err:
             logging.error(f"Failed to get columns for table {table_name}: {err}")
+            return []
+
+    def execute_query(self, query: str, params: tuple = None) -> List[Tuple]:
+        """
+        Executes a SQL query and returns the results.
+
+        :param query: The SQL query to execute.
+        :param params: A tuple of parameters to pass to the query.
+        :return: A list of tuples representing the rows returned by the query.
+        """
+        if not self.conn or not self.cursor:
+            raise ConnectionError("Database connection is not available.")
+
+        try:
+            self.cursor.execute(query, params)
+            return self.cursor.fetchall()
+        except mysql.connector.Error as err:
+            logging.error(f"Failed to execute query: {err}")
             return []
 
     def insert_many(self, table: str, columns: List[str], values: List[Tuple], on_duplicate: str = 'ignore'):

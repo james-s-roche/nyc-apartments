@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS listings (
 CREATE TABLE IF NOT EXISTS neighborhoods (
   id INT PRIMARY KEY,
   name VARCHAR(128) NOT NULL,
+  slug VARCHAR(128),
   level INT,
   parent_id INT,
   UNIQUE KEY uniq_name (name)
