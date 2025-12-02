@@ -157,7 +157,7 @@ python tools/export_csv.py --out data/listings.csv
 
 This project includes several scripts to generate interactive visualizations of the neighborhood data.
 
-<iframe src="https://github.com/james-s-roche/nyc-apartments/blob/main/img/neighborhood_treemap.html" width="100%" height="400px"></iframe>
+<iframe src="https://media.githubusercontent.com/media/james-s-roche/nyc-apartments/refs/heads/main/img/neighborhood_treemap.html" width="100%" height="400px"></iframe>
 
 -   **Neighborhood Treemaps:**
     ```
