@@ -6,7 +6,7 @@ This project is a data pipeline and analysis tool for scraping, storing, and ana
 
 ## Demo
 
-Here is a brief demonstration of the interactive Dash web application, showcasing the map, table, and treemap views.
+Here is a brief demonstration of the interactive Dash web application, showcasing the map, table, and treemap views. (may take a minute to load)
 
 ![NYC Apartments App Demo](https://media.githubusercontent.com/media/james-s-roche/nyc-apartments/refs/heads/main/img/app_demo.gif)
 
@@ -156,7 +156,8 @@ python tools/export_csv.py --out data/listings.csv
 ### Basic Visualizations
 
 This project includes several scripts to generate interactive visualizations of the neighborhood data.
-![NYC Apartments App Demo](img/neighborhood_treemap.html)
+
+<iframe src="https://github.com/james-s-roche/nyc-apartments/blob/main/img/neighborhood_treemap.html" width="100%" height="400px"></iframe>
 
 -   **Neighborhood Treemaps:**
     ```
@@ -174,6 +175,6 @@ This project includes several scripts to generate interactive visualizations of 
 
 This code is provided for educational purposes. Use responsibly and comply with website terms, `robots.txt`, and applicable laws. 
 
-1) The api endpoint used is not listed in `robots.txt`, either allowed or disallowed. It seems likely that this is not intended to be scraped based on [this repo](https://github.com/purcelba/streeteasy_scrape) and the lack of a publically documented API.
+1) The api endpoint used is not listed in `robots.txt`, either allowed or disallowed. It seems likely that this is not intended to be scraped based on [this repo](https://github.com/purcelba/streeteasy_scrape) and the lack of a publicly documented API.
 
-2) This information is scraped and sold already [here](https://rapidapi.com/realestator/api/streeteasy-api) which seems to have no affiliation with StreetEasy. I have no intention of profitting off of this data or sharing it widely. 
+2) This information is scraped and sold already [here](https://rapidapi.com/realestator/api/streeteasy-api) which seems to have no affiliation with StreetEasy. I have no intention of profiting off of this data or sharing it widely. 
