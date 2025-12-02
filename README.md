@@ -8,7 +8,7 @@ This project is a data pipeline and analysis tool for scraping, storing, and ana
 
 Here is a brief demonstration of the interactive Dash web application, showcasing the map, table, and treemap views.
 
-![NYC Apartments App Demo](img/app_demo.gif)
+![NYC Apartments App Demo](https://media.githubusercontent.com/media/james-s-roche/nyc-apartments/refs/heads/main/img/app_demo.gif)
 
 ## Features
 
