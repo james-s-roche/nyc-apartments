@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS listings (
   net_effective_price INT,
   off_market_at DATETIME,
   price INT,
-  rello_express VARCHAR(64),
   slug VARCHAR(255),
   source_group_label VARCHAR(255),
   source_type VARCHAR(32),

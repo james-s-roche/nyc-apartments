@@ -35,12 +35,28 @@ def add_slug_column():
                             REPLACE(
                             REPLACE(
                             REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
+                            REPLACE(
                                 REGEXP_REPLACE(
                                     REGEXP_REPLACE(name, "[().']", ""),
                                     ' /', '-'),
+                                'All Downtown', 'downtown'),
+                                'All Midtown', 'midtown-all'),
+                                'All Upper West Side', 'uws'),
+                                'All Upper East Side', 'ues'),
+                                'All Upper Manhattan', 'upper'),
                                 'Lower East Side', 'les'),
+                                'Co-op City', 'coop-city'),
+                                'Columbia St Waterfront District', 'cswd'),
                                 'Stuyvesant Town/PCV', 'stuyvesant-town'),
                                 'Turtle Bay', 'turtlebay'),
+                                'Sunnyside', 'sunnyside-queens'),
                                 'West Side', 'west-side-hudson-county')
                 )
                 WHERE slug IS NULL

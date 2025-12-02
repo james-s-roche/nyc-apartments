@@ -90,7 +90,7 @@ def main(pages: int, start_page: int, delay: Optional[float], timeout: Optional[
                 logging.info(f"Ingested {len(listings)} listings from {neighborhood_slug}, page {current_page}.")
 
                 # Determine the actual number of pages to scrape
-                api_page_cap = 100
+                api_page_cap = 50 # Looks like level 1 allows 75 but others cap at 50
                 page_limit = min(total_pages_api, api_page_cap)
                 if pages > 0:  # User-defined limit
                     page_limit = min(page_limit, pages)

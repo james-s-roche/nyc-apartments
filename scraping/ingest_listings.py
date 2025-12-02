@@ -23,13 +23,6 @@ def ingest_listings(listings: List[Dict], db: MySQLClient):
         df['longitude'] = geo_points['longitude']
         df.drop(columns=['geoPoint'], inplace=True)
 
-    # Not even sure what relloExpress is but try flattening it too.
-    if df['relloExpress'].notnull().any():
-        rello_express = df['relloExpress'].apply(pd.Series)
-        df['rello_express'] = rello_express['link']
-        df.drop(columns=['relloExpress'], inplace=True)
-
-
     # Define a function to convert camelCase to snake_case
     def camel_to_snake(name):
         s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
