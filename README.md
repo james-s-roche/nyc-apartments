@@ -155,15 +155,20 @@ python tools/export_csv.py --out data/listings.csv
 ```
 ### Basic Visualizations
 
-This project includes several scripts to generate interactive visualizations of the neighborhood data.
+This project includes several scripts to generate interactive visualizations of the neighborhood data. A simple demo of how streeteasy defines the neighborhood hierarchy can be seen here:
 
-
-<iframe src="https://james-s-roche.github.io/html-demos/neighborhood_treemap.html" width="100%" height="400px" title="Embedded HTML Demo" sandbox="allow-scripts"></iframe>
+<iframe 
+  src="https://james-s-roche.github.io/html-demos/apartment_plots/neighborhood_treemap.html" 
+  width="100%" 
+  height="400px" 
+  title="NYC neighborhood explorer" 
+  sandbox="allow-scripts"
+></iframe>
 
 
 -   **Neighborhood Treemaps:**
     ```
-    python tools/neighborhood_diagram.py
+    python tools/neighborhood_treemap.py
     ```
     This will generate an HTML files `img/neighborhood_*.html` with a treemap, sunburst and icicle charts of the neighborhoods.
     
