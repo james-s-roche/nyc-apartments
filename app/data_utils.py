@@ -85,7 +85,7 @@ def data_aggregation(df: pd.DataFrame, group_by_col: str) -> pd.DataFrame:
     return agg_df
 
 
-def neighborhood_aggregation_recursive() -> pd.DataFrame:
+def neighborhood_aggregation_recursive(listings_df: pd.DataFrame) -> pd.DataFrame:
     """
     Alternative implementation of data aggregation by the specified column.
     This version includes logging and handles edge cases.
@@ -94,10 +94,7 @@ def neighborhood_aggregation_recursive() -> pd.DataFrame:
     :param group_by_col: The column to group by ('area_name' or 'zip_code').
     :return: A DataFrame with aggregated metrics.
     """
-    listings = get_listings_data()
-    # listings.drop(columns=['id', 'source', 'slug'], inplace=True)
-    listings = listings[['external_id', 'area_name', 'latitude', 'longitude', 'bedroom_count', 
-                         'price', 'living_area_size', 'state', 'zip_code']]
+    listings = listings_df[['external_id', 'area_name', 'latitude', 'longitude', 'bedroom_count', 'price', 'living_area_size', 'state', 'zip_code']]
     neighborhoods = get_neighborhood_data()
     neighborhoods = neighborhoods[['id', 'name', 'parent_id', 'level', 'parent_name']]
     df = pd.merge(neighborhoods, listings, left_on='name', right_on='area_name', how='left')  
@@ -152,7 +149,6 @@ def neighborhood_aggregation_recursive() -> pd.DataFrame:
     # final_agg_df.loc[final_agg_df['id'] == 1, 'parent_name'] = 'All'
     # just kiding, drop it since it's useless visually
     final_agg_df.loc[final_agg_df['id'] == 1, 'parent_name'] = 'All'
-    print(final_agg_df[final_agg_df['level'] == 0])
     # final_agg_df = final_agg_df[final_agg_df['level'] != 0]
 
     logging.info("Neighborhood hierarchical aggregation complete.")

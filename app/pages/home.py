@@ -4,9 +4,10 @@ import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import plotly.express as px
+import pandas as pd
 from io import StringIO
 
-from app.data_utils import get_listings_data, data_aggregation#, get_aggregated_data
+from app.data_utils import data_aggregation
 
 # Register the page
 dash.register_page(__name__, path='/')
@@ -41,11 +42,19 @@ layout = dbc.Container([
                 inline=True,
             ),
             html.Br(),
-            dbc.Label("Metric to Display:"),
+            dbc.Label("Color:"),
             dcc.Dropdown(
                 id='metric-dropdown',
                 options=[{'label': v, 'value': k} for k, v in METRIC_OPTIONS.items()],
                 value='price_median'
+            ),
+            html.Br(),
+            dbc.Label("Size:"),
+            dcc.Dropdown(
+                id='size-dropdown',
+                options=[{'label': v, 'value': k} for k, v in METRIC_OPTIONS.items()],
+                value='listing_count',
+                clearable=True
             ),
         ], width=12, md=3, className="bg-light p-3"),
         
@@ -65,13 +74,13 @@ layout = dbc.Container([
 @callback(
     Output('agg-data-store', 'data'),
     Input('group-by-radio', 'value'),
-    Input('listings-data-store', 'data') # Listen to the global store
+    Input('filtered-listings-store', 'data') # Listen to the new filtered store
 )
 def update_aggregated_data(group_by, listings_json):
     if not listings_json:
         return None
     
-    df = px.pd.read_json(StringIO(listings_json), orient='split')
+    df = pd.read_json(StringIO(listings_json), orient='split')
     agg_df = data_aggregation(df, group_by)
     return agg_df.to_json(date_format='iso', orient='split')
 
@@ -79,39 +88,55 @@ def update_aggregated_data(group_by, listings_json):
 @callback(
     Output('map-graph', 'figure'),
     Input('agg-data-store', 'data'),
-    Input('metric-dropdown', 'value'),
-    Input('group-by-radio', 'value') # Use Input here instead of State
+    Input('metric-dropdown', 'value'), 
+    Input('size-dropdown', 'value'),   
+    Input('group-by-radio', 'value')
 )
-def update_map(agg_data_json, metric, group_by):
+def update_map(agg_data_json, color_metric, size_metric, group_by):
     if not agg_data_json:
         return go.Figure().update_layout(title="No data available.")
 
+    df = pd.read_json(StringIO(agg_data_json), orient='split')
     
-    df = px.pd.read_json(StringIO(agg_data_json), orient='split')
-    if df.empty or metric not in df.columns:
+    if df.empty:
         return go.Figure().update_layout(title="No data to display for the selected criteria.")
+    
+    def get_format_string(metric):
+        """Returns a d3-format string based on the metric name."""
+        if 'price' in metric:
+            return ':$,.0f'  # Format as currency, no decimals
+        if 'listing' in metric: 
+            return ':.0f' 
+        return ':.1f'       # Default to one decimal place for other floats (like size/bedrooms)
+
+    # Define hover data, starting with the essentials
+    hover_data = {
+        'latitude': False,
+        'longitude': False,
+        'listing_count': True, # Always show listing count with default formatting
+        color_metric: get_format_string(color_metric),
+    }
+
+    # If a size metric is selected and it's different from the color metric, add it to hover data
+    if size_metric and size_metric != color_metric:
+        hover_data[size_metric] = get_format_string(size_metric)
 
     # Create the map figure using Plotly Express for simplicity
     fig = px.scatter_mapbox(
         df,
         lat='latitude',
         lon='longitude',
-        size='listing_count',
-        color=metric,
+        size=size_metric if size_metric else 5, # Use a default size if None
+        color=color_metric,
         hover_name=group_by,
-        hover_data={
-            'latitude': False, # hide latitude
-            'longitude': False, # hide longitude
-            'listing_count': True,
-            metric: ':.2f' # format the metric
-        },
-        color_continuous_scale='Jet',
+        hover_data=hover_data,
+        color_continuous_scale='Turbo',
+        range_color=[df[color_metric].min(), df[color_metric].max()] if color_metric else None,
         size_max=30, # Set max bubble size
-        zoom=10.5
+        zoom=10
     )
 
     fig.update_layout(
-        # Use maplibre attributes as mapbox is now an alias for maplibre
         mapbox = {"style":"carto-positron"},
         margin={"r":0,"t":0,"l":0,"b":0}
     )
